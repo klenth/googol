@@ -1,10 +1,10 @@
 package klenth.googol;
 
 import edu.westminstercollege.cs.jade.assembler.Assembler;
-import klenth.googol.ast.node.Node;
+import klenth.googol.ast.Node;
+import klenth.googol.math.BinaryFunction;
 import klenth.googol.parse.ExpressionLexer;
 import klenth.googol.parse.ExpressionParser;
-import klenth.googol.parse.Listener;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 
@@ -47,11 +47,8 @@ public class Main {
 
             var lexer = new ExpressionLexer(CharStreams.fromString(line));
             var parser = new ExpressionParser(new CommonTokenStream(lexer));
-            var listener = new Listener();
-            parser.addParseListener(listener);
 
-            parser.goal();
-            var expr = listener.getExpression();
+            var expr = parser.totalExpr().n;
             print(expr);
 
             final int NUM_TRIALS = 100_000_000;
@@ -80,7 +77,7 @@ public class Main {
                 buffer.position(0);
 
                 Class<?> exprClass = loadClass(buffer);
-                Function f = (Function)exprClass.getConstructor().newInstance();
+                BinaryFunction f = (BinaryFunction)exprClass.getConstructor().newInstance();
                 //var method = exprClass.getMethod("evaluate", Double.TYPE, Double.TYPE);
 
                 t.mark();
@@ -208,6 +205,11 @@ public class Main {
                 sb.append("dneg\n");
             }
 
+            case Node.AbsoluteValue(var e) -> {
+                generateCode(e, sb);
+                sb.append("invokestatic java/lang/Math/abs (D)D\n");
+            }
+
             case Node.FunctionCall(String name, var args) -> {
                 checkArgs(name, args);
                 for (var arg : args)
@@ -239,6 +241,7 @@ public class Main {
                 default -> throw new RuntimeException();
             };
             case Node.Negate(Node.Expr e) -> -evaluate(x, y, e);
+            case Node.AbsoluteValue(Node.Expr e) -> Math.abs(evaluate(x, y, e));
             case Node.BinaryOp bop -> {
                 double l = evaluate(x, y, bop.left()),
                         r = evaluate(x, y, bop.right());
