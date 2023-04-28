@@ -18,7 +18,7 @@ public class EquationCellEditor extends JTextField implements TableCellRenderer,
 
     private MathContext mathContext;
     private List<CellEditorListener> listeners = new ArrayList<>();
-    private Object initialValue = null;
+    private CompiledGraph initialValue = null;
     private CompiledGraph editedValue = null;
 
     public EquationCellEditor(MathContext context) {
@@ -45,22 +45,18 @@ public class EquationCellEditor extends JTextField implements TableCellRenderer,
 
     @Override
     public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-        /*if (hasFocus || isSelected) {
+        if (hasFocus || isSelected) {
             setForeground(table.getSelectionForeground());
             setBackground(table.getSelectionBackground());
         } else {
             setForeground(table.getForeground());
             setBackground(table.getBackground());
-        }*/
+        }
 
         setForeground(table.getForeground());
         if (value instanceof CompiledGraph graph) {
             var eqn = graph.equation();
-            if (eqn.isBlank() && !hasFocus) {
-                setText("Example: y = x^2");
-                setForeground(Color.gray);
-            } else
-                setText(graph.equation());
+            setText(graph.equation());
         } else
             setText((value == null) ? "" : value.toString());
 
@@ -69,6 +65,7 @@ public class EquationCellEditor extends JTextField implements TableCellRenderer,
 
     @Override
     public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected, int row, int column) {
+        initialValue = (value instanceof CompiledGraph cg) ? cg : null;
         return getTableCellRendererComponent(table, value, isSelected, true, row, column);
     }
 
@@ -90,11 +87,15 @@ public class EquationCellEditor extends JTextField implements TableCellRenderer,
     @Override
     public boolean stopCellEditing() {
         editedValue = null;
-        try {
-            editedValue = CompiledGraph.compile(getText(), mathContext);
-        } catch (SyntaxException ex) {
-            System.err.println(ex.getMessage());
-            return false;
+        if (initialValue != null && getText().equals(initialValue.equation()))
+            editedValue = initialValue;
+        else {
+            try {
+                editedValue = CompiledGraph.compile(getText(), mathContext);
+            } catch (SyntaxException ex) {
+                System.err.println(ex.getMessage());
+                return false;
+            }
         }
 
         var tempListeners = new ArrayList<>(listeners);
@@ -106,6 +107,8 @@ public class EquationCellEditor extends JTextField implements TableCellRenderer,
 
     @Override
     public void cancelCellEditing() {
+        if (initialValue != null)
+            setText(initialValue.equation());
         var tempListeners = new ArrayList<>(listeners);
         for (var listener : tempListeners)
             onEventThread(() -> listener.editingCanceled(new ChangeEvent(this)));

@@ -9,6 +9,7 @@ import klenth.googol.math.EnvFunction;
 import klenth.googol.math.UnaryFunction;
 import klenth.googol.parse.ExpressionLexer;
 import klenth.googol.parse.ExpressionParser;
+import klenth.util.Zipper;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 
@@ -217,6 +218,12 @@ public final class Expressions {
     }
 
     private static void generateCode(Node.Expr expr, List<String> variableNames, Map<String, Double> constantValues, Map<String, EnvFunction> envFunctions, PrintWriter out) {
+        var maybeConstant = constantValue(expr, constantValues, envFunctions);
+        if (maybeConstant.isPresent() && !(expr instanceof Expr.Number)) {
+            generateCode(new Node.Number(maybeConstant.get()), variableNames, constantValues, envFunctions, out);
+            return;
+        }
+
         switch (expr) {
             case Number(double value) -> out.printf("ldc2_w %.20g\n", value);
 
@@ -262,11 +269,29 @@ public final class Expressions {
                 if (!envf.acceptsParameters(arguments.size()))
                     throw new RuntimeException(String.format("Invalid use of %s() with %d arguments", functionName, arguments.size()));
 
-                for (var arg : arguments)
-                    generateCode(arg, variableNames, constantValues, envFunctions, out);
-
                 switch (envf) {
-                    case EnvFunction.Builtin b -> b.generateCode(out);
+                    case EnvFunction.Builtin b -> {
+                        switch (b) {
+                            case Round -> {
+                                generateCode(arguments.get(0), variableNames, constantValues, envFunctions, out);
+                                out.println("invokestatic java/lang/Math/round (D)J\n");
+                                out.println("l2d");
+                            }
+
+                            case Min, Max -> {
+                                generateCode(arguments.get(0), variableNames, constantValues, envFunctions, out);
+                                for (var arg : arguments.subList(1, arguments.size())) {
+                                    generateCode(arg, variableNames, constantValues, envFunctions, out);
+                                    out.printf("invokestatic java/lang/Math/%s (DD)D\n", b.getName());
+                                }
+                            }
+
+                            default -> {
+                                generateCode(arguments.get(0), variableNames, constantValues, envFunctions, out);
+                                out.printf("invokestatic java/lang/Math/%s (D)D\n", b.getName());
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -277,7 +302,7 @@ public final class Expressions {
             case Number n -> 2;
             case Variable v -> 2;
             case BinaryOp bop -> Math.max(maxStackSize(bop.left()), 2 + maxStackSize(bop.right()));
-            case Negate n -> 2;
+            case Negate n -> maxStackSize(n.e());
             case AbsoluteValue a -> maxStackSize(a.e());
             case FunctionCall(String functionName, List<Expr> arguments) -> {
                 int maxSize = 0;
@@ -286,6 +311,71 @@ public final class Expressions {
                 }
                 yield maxSize;
             }
+        };
+    }
+
+    private static Optional<Double> constantValue(Node.Expr expr, Map<String, Double> constantValues, Map<String, EnvFunction> envFunctions) {
+        return switch (expr) {
+            case Number n -> Optional.of(n.value());
+
+            case Variable v
+            when constantValues.containsKey(v.name()) -> Optional.of(constantValues.get(v.name()));
+
+            case BinaryOp bop -> {
+                var maybeLeft = constantValue(bop.left(), constantValues, envFunctions);
+                if (maybeLeft.isPresent()) {
+                    var maybeRight = constantValue(bop.right(), constantValues, envFunctions);
+                    if (maybeRight.isPresent()) {
+                        yield Optional.of(switch (bop) {
+                            case Add a -> maybeLeft.get() + maybeRight.get();
+                            case Subtract s -> maybeLeft.get() - maybeRight.get();
+                            case Multiply m -> maybeLeft.get() * maybeRight.get();
+                            case Divide d -> maybeLeft.get() / maybeRight.get();
+                            case Power p -> Math.pow(maybeLeft.get(), maybeRight.get());
+                        });
+                    }
+                }
+
+                yield Optional.empty();
+            }
+
+            case Negate n -> constantValue(n.e(), constantValues, envFunctions).map(x -> -x);
+
+            case AbsoluteValue av -> constantValue(av.e(), constantValues, envFunctions).map(Math::abs);
+
+            case FunctionCall(String functionName, List<Node.Expr> args) -> {
+                double[] a = new double[args.size()];
+                for (var p : Zipper.withIndices(args)) {
+                    var maybeValue = constantValue(p.second(), constantValues, envFunctions);
+                    if (maybeValue.isEmpty())
+                        yield Optional.empty();
+                    a[p.first()] = maybeValue.get();
+                }
+
+                var func = envFunctions.get(functionName);
+
+                yield switch (func) {
+                    case EnvFunction.Builtin b -> Optional.of(switch (b) {
+                        case Floor -> Math.floor(a[0]);
+                        case Ceil -> Math.ceil(a[0]);
+                        case Round -> (double)Math.round(a[0]);
+                        case Abs -> Math.abs(a[0]);
+                        case Signum -> Math.signum(a[0]);
+                        case Min -> Arrays.stream(a).min().getAsDouble();
+                        case Max -> Arrays.stream(a).max().getAsDouble();
+                        case Sqrt -> Math.sqrt(a[0]);
+                        case Exp -> Math.exp(a[0]);
+                        case Sin -> Math.sin(a[0]);
+                        case Cos -> Math.cos(a[0]);
+                        case Tan -> Math.tan(a[0]);
+                        case Asin -> Math.asin(a[0]);
+                        case Acos -> Math.acos(a[0]);
+                        case Atan -> Math.atan(a[0]);
+                    });
+                };
+            }
+
+            default -> Optional.empty();
         };
     }
 }

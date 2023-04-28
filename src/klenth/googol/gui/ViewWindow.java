@@ -9,16 +9,32 @@ public record ViewWindow(double xMin, double xMax, double xStep, double yMin, do
 
     public Point2D mathToScreen(Dimension screenSize, Point2D p) {
         return new Point2D.Double(
-                (p.getX() - xMin) / (xMax - xMin) * screenSize.width,
-                screenSize.height - (p.getY() - yMin) / (yMax - yMin) * screenSize.height
+            mathToScreenX(screenSize, p.getX()),
+            mathToScreenY(screenSize, p.getY())
         );
+    }
+
+    public double mathToScreenX(Dimension screenSize, double x) {
+        return (x - xMin) / (xMax - xMin) * screenSize.width;
+    }
+
+    public double mathToScreenY(Dimension screenSize, double y) {
+        return screenSize.height - (y - yMin) / (yMax - yMin) * screenSize.height;
     }
 
     public Point2D screenToMath(Dimension screenSize, Point2D p) {
         return new Point2D.Double(
-                p.getX() / screenSize.width * (xMax - xMin) + xMin,
-                (screenSize.height - p.getY()) / screenSize.height * (yMax - yMin) + yMin
+            screenToMathX(screenSize, p.getX()),
+            screenToMathY(screenSize, p.getY())
         );
+    }
+
+    public double screenToMathX(Dimension screenSize, double x) {
+        return x / screenSize.width * (xMax - xMin) + xMin;
+    }
+
+    public double screenToMathY(Dimension screenSize, double y) {
+        return (screenSize.height - y) / screenSize.height * (yMax - yMin) + yMin;
     }
 
     public double xSpan() {
@@ -27,5 +43,9 @@ public record ViewWindow(double xMin, double xMax, double xStep, double yMin, do
 
     public double ySpan() {
         return yMax - yMin;
+    }
+
+    public ViewWindow translate(double dx, double dy) {
+        return new ViewWindow(xMin + dx, xMax + dx, xStep, yMin + dy, yMax + dy, yStep);
     }
 }

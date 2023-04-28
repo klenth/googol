@@ -37,8 +37,8 @@ public class GraphSetDialog extends JDialog {
 
         table.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
         var equationCellEditor = new EquationCellEditor(mathContext);
-        table.setDefaultEditor(Graph.class, equationCellEditor);
-        table.setDefaultRenderer(Graph.class, equationCellEditor);
+        table.setDefaultEditor(Graph.class, new EquationCellEditor(mathContext));
+        table.setDefaultRenderer(Graph.class, new EquationCellEditor(mathContext));
         table.setRowHeight(32);
         table.getColumnModel().getColumn(0).setMaxWidth(32);
 

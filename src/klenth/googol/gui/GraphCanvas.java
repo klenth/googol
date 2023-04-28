@@ -19,6 +19,11 @@ public class GraphCanvas extends JComponent {
     private GraphSet graphs = new GraphSet();
     private List<Object> graphRenders = new ArrayList<>();
     private ViewWindow window = new ViewWindow(-4, 4, 0.5, -4, 4, 0.5);
+    private Point dragOriginScreen = null;
+    private Point2D dragOriginMath = null;
+    private ViewWindow dragOriginalWindow = null;
+    private Point dragPoint = null;
+    private BufferedImage dragSnapshot = null;
 
     private GraphSet.Listener graphListener = new GraphSet.Listener() {
         @Override
@@ -52,7 +57,9 @@ public class GraphCanvas extends JComponent {
     };
 
     {
-        enableEvents(AWTEvent.MOUSE_WHEEL_EVENT_MASK);
+        //enableEvents(AWTEvent.MOUSE_WHEEL_EVENT_MASK);
+        enableEvents(AWTEvent.MOUSE_EVENT_MASK);
+        enableEvents(AWTEvent.MOUSE_MOTION_EVENT_MASK);
         enableEvents(AWTEvent.COMPONENT_EVENT_MASK);
         graphs.addListener(graphListener);
     }
@@ -64,12 +71,20 @@ public class GraphCanvas extends JComponent {
     @Override
     protected void paintComponent(Graphics _g) {
         super.paintComponent(_g);
+        _g.setColor(getBackground());
+        _g.fillRect(0, 0, getWidth(), getHeight());
+
+        if (isDragging()) {
+            _g.drawImage(dragSnapshot, dragPoint.x - dragOriginScreen.x, dragPoint.y - dragOriginScreen.y, null);
+            return;
+        }
 
         Graphics2D g = (Graphics2D)_g.create();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
         paintGrid(g);
         paintAxes(g);
+        paintAxesTicks(g);
 
         for (int i = 0; i < graphs.getGraphCount(); ++i) {
             if (graphs.isGraphEnabled(i)) {
@@ -117,6 +132,33 @@ public class GraphCanvas extends JComponent {
 
         line.setLine(sOrigin.getX(), sMin.getY(), sOrigin.getX(), sMax.getY());
         g.draw(line);
+    }
+
+    private void paintAxesTicks(Graphics2D g) {
+        g.setPaint(new Color(0x102040));
+        g.setStroke(new BasicStroke(3f));
+
+        Line2D line = new Line2D.Double();
+        double bx = window.xMin() - window.xMin() % window.xStep();
+
+        double asx = window.mathToScreenX(getSize(), 0);
+        double asy = window.mathToScreenY(getSize(), 0);
+
+        Dimension size = getSize();
+        Point2D sMin = window.mathToScreen(size, new Point2D.Double(window.xMin(), window.yMin()));
+        Point2D sMax = window.mathToScreen(size, new Point2D.Double(window.xMax(), window.yMax()));
+        for (double x = bx; x <= window.xMax(); x += window.xStep()) {
+            double sx = (x - window.xMin()) / (window.xMax() - window.xMin()) * size.width;
+            line.setLine(sx, asy - 4, sx, asy + 4);
+            g.draw(line);
+        }
+
+        double by = window.yMin() - window.yMin() % window.yStep();
+        for (double y = by; y <= window.yMax(); y += window.yStep()) {
+            double sy = size.height - (y - window.yMin()) / (window.yMax() - window.yMin()) * size.height;
+            line.setLine(asx - 4, sy, asx + 4, sy);
+            g.draw(line);
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -172,7 +214,13 @@ public class GraphCanvas extends JComponent {
             return path;
         });
 
-        g.draw(render);
+        if (isDragging()) {
+            g = (Graphics2D)g.create();
+            g.translate(dragPoint.x - dragOriginScreen.x, dragPoint.y - dragOriginScreen.y);
+            g.draw(render);
+            g.dispose();
+        } else
+            g.draw(render);
     }
 
     private void paintGraph(int number, TruthPlot graph, Graphics2D g) {
@@ -195,7 +243,10 @@ public class GraphCanvas extends JComponent {
             return image;
         });
 
-        g.drawImage(render, 0, 0, null);
+        if (isDragging())
+            g.drawImage(render, dragPoint.x - dragOriginScreen.x, dragPoint.y - dragOriginScreen.y, null);
+        else
+            g.drawImage(render, 0, 0, null);
     }
 
     @Override
@@ -215,6 +266,58 @@ public class GraphCanvas extends JComponent {
             graphRenders.replaceAll(o -> null);
             repaint();
         }
+    }
+
+    @Override
+    protected void processMouseEvent(MouseEvent e) {
+        if (e.getID() == MouseEvent.MOUSE_PRESSED && e.getButton() == MouseEvent.BUTTON1) {
+            dragSnapshot = new BufferedImage(getWidth(), getHeight(), BufferedImage.TYPE_INT_RGB);
+            var snapshotGraphics = dragSnapshot.getGraphics();
+            paintComponent(snapshotGraphics);
+            dragOriginScreen = e.getPoint();
+            dragOriginMath = window.screenToMath(getSize(), new Point2D.Double(e.getX(), e.getY()));
+            dragOriginalWindow = window;
+            dragPoint = dragOriginScreen;
+        } else if (e.getID() == MouseEvent.MOUSE_RELEASED) {
+            boolean dragged = false;
+            if (isDragging()) {
+                dragged = true;
+                Point p = e.getPoint();
+                Point2D pMath = dragOriginalWindow.screenToMath(getSize(), new Point2D.Double(p.x, p.y));
+                double Δx = dragOriginMath.getX() - pMath.getX();
+                double Δy = dragOriginMath.getY() - pMath.getY();
+                window = dragOriginalWindow.translate(Δx, Δy);
+
+                dragOriginScreen = null;
+                dragOriginMath = null;
+                dragOriginalWindow = null;
+                dragPoint = null;
+                dragSnapshot = null;
+            }
+
+            if (dragged) {
+                graphRenders.replaceAll(r -> null);
+                repaint();
+            }
+        }
+        super.processMouseEvent(e);
+    }
+
+    @Override
+    protected void processMouseMotionEvent(MouseEvent e) {
+        if (e.getID() == MouseEvent.MOUSE_DRAGGED && isDragging()) {
+            Point p = e.getPoint();
+            Point2D pMath = dragOriginalWindow.screenToMath(getSize(), new Point2D.Double(p.x, p.y));
+            double Δx = dragOriginMath.getX() - pMath.getX();
+            double Δy = dragOriginMath.getY() - pMath.getY();
+            window = dragOriginalWindow.translate(Δx, Δy);
+            dragPoint = p;
+            repaint();
+        }
+    }
+
+    private boolean isDragging() {
+        return dragOriginScreen != null;
     }
 
     public void zoom(double cx, double cy, double factor) {

@@ -11,6 +11,7 @@ public sealed interface EnvFunction {
 
         Floor, Ceil, Round,
         Abs, Signum,
+        Min, Max,
         Sqrt, Exp,
         Sin, Cos, Tan,
         Asin, Acos, Atan;
@@ -18,6 +19,7 @@ public sealed interface EnvFunction {
         @Override
         public boolean acceptsParameters(int count) {
             return switch (this) {
+                case Min, Max -> count > 0;
                 default -> count == 1;
             };
         }
@@ -32,6 +34,9 @@ public sealed interface EnvFunction {
                 case Round -> {
                     out.println("invokestatic java/lang/Math/round (D)J");
                     out.println("l2d");
+                }
+                case Min -> {
+
                 }
                 default -> out.printf("invokestatic java/lang/Math/%s (%s)D\n",
                         getName(), String.join("", "D".repeat(1)));
